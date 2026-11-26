@@ -1,0 +1,9 @@
+# Dependencies for Streamlit Community Cloud.
+# Cloud looks next to the entrypoint (app/streamlit_app.py) first, so this file
+# takes priority over the Windows conda export in the repo-root environment.yml.
+streamlit>=1.40
+pandas>=2.2
+numpy>=1.26
+plotly>=5.24
+requests>=2.31
+pyarrow>=15

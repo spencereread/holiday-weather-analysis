@@ -6,6 +6,12 @@ be fetched on demand without CDS queue times. Data are licensed CC BY 4.0.
 
 Downloads are cached as Parquet in 5-year blocks per ERA5 grid cell, so a
 location is only fetched once and changing the year range reuses blocks.
+
+Lookup order for each block:
+1. data/cache/  - runtime cache (git-ignored; temporary on Streamlit Cloud)
+2. data/seed/   - compact copies of preset locations, committed to the repo
+                  (built by scripts/build_seed.py) so deployed apps start fast
+3. Open-Meteo   - downloaded, then saved to data/cache/
 """
 
 from __future__ import annotations
@@ -24,17 +30,55 @@ HOURLY_VARS = [
     "temperature_2m",
     "precipitation",
     "cloud_cover",
-    "wind_speed_10m",
     "wind_gusts_10m",
     "sunshine_duration",
 ]
+
+# Seed files store integers to save space: value = stored / scale.
+# Tenths of a degree / mm / km/h match Open-Meteo's own precision;
+# sunshine is stored in whole minutes.
+SEED_SCALE = {
+    "temperature_2m": ("int16", 10.0),
+    "precipitation": ("int16", 10.0),
+    "cloud_cover": ("uint8", 1.0),
+    "wind_gusts_10m": ("int16", 10.0),
+    "sunshine_duration": ("uint8", 1 / 60),
+}
 
 FIRST_YEAR = 1940
 LAST_COMPLETE_YEAR = 2025  # ERA5 lags real time by ~5 days; use whole years only
 BLOCK_YEARS = 5
 GRID = 0.25  # ERA5 native resolution in degrees
 
-DEFAULT_CACHE = Path(__file__).resolve().parent.parent / "data" / "cache"
+_DATA_DIR = Path(__file__).resolve().parent.parent / "data"
+DEFAULT_CACHE = _DATA_DIR / "cache"
+SEED_DIR = _DATA_DIR / "seed"
+
+
+def block_name(lat: float, lon: float, y0: int, y1: int) -> str:
+    return f"era5_{lat:.2f}_{lon:.2f}_{y0}_{y1}.parquet"
+
+
+def to_seed(df: pd.DataFrame) -> pd.DataFrame:
+    """Compact integer encoding of an hourly block (for data/seed/)."""
+    out = pd.DataFrame(index=df.index)
+    for col, (dtype, scale) in SEED_SCALE.items():
+        out[col] = (df[col] * scale).round().astype(dtype)
+    return out
+
+
+def from_seed(df: pd.DataFrame) -> pd.DataFrame:
+    out = pd.DataFrame(index=df.index)
+    for col, (_, scale) in SEED_SCALE.items():
+        out[col] = (df[col].astype("float32") / scale).astype("float32")
+    return out
+
+
+def _read_block(path: Path) -> pd.DataFrame:
+    df = pd.read_parquet(path)
+    if df["temperature_2m"].dtype.kind in "iu":  # compact seed encoding
+        df = from_seed(df)
+    return df[HOURLY_VARS]
 
 
 def snap(value: float) -> float:
@@ -89,6 +133,7 @@ def load_hourly(
     end_year: int,
     cache_dir: Path = DEFAULT_CACHE,
     progress: Callable[[float], None] | None = None,
+    seed_dir: Path = SEED_DIR,
 ) -> pd.DataFrame:
     """Hourly ERA5 data (local time index) for the grid cell containing lat/lon."""
     start_year = max(start_year, FIRST_YEAR)
@@ -99,9 +144,12 @@ def load_hourly(
     blocks = _blocks(start_year, end_year)
     frames = []
     for i, (y0, y1) in enumerate(blocks):
-        path = cache_dir / f"era5_{lat:.2f}_{lon:.2f}_{y0}_{y1}.parquet"
+        name = block_name(lat, lon, y0, y1)
+        path, seed = cache_dir / name, seed_dir / name
         if path.exists():
-            frames.append(pd.read_parquet(path))
+            frames.append(_read_block(path))
+        elif seed.exists():
+            frames.append(_read_block(seed))
         else:
             block = _fetch_block(lat, lon, y0, y1)
             block.to_parquet(path)
