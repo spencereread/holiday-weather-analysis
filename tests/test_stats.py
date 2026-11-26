@@ -101,6 +101,20 @@ def test_yearly_rates_and_interval():
     assert len(stats.around(0, 3)) == 7  # wraps the year end
 
 
+def test_seed_encoding_round_trip(tmp_path):
+    from weatherplanner import data
+
+    df = synthetic_hourly(range(2001, 2002))[data.HOURLY_VARS]
+    df["temperature_2m"] = np.linspace(-12.3, 35.7, len(df)).round(1)
+    df["precipitation"] = np.tile([0.0, 0.1, 2.4, 9.7], len(df) // 4)
+    df = df.astype("float32")
+    path = tmp_path / "seed.parquet"
+    data.to_seed(df).to_parquet(path)
+    back = data._read_block(path)
+    assert list(back.columns) == data.HOURLY_VARS
+    assert np.allclose(back.to_numpy(), df.to_numpy(), atol=0.051)
+
+
 def test_period_split():
     dates = pd.date_range("2001-01-01", "2010-12-31", freq="D")
     flags = pd.Series(dates.year >= 2006, index=dates)

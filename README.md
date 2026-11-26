@@ -30,6 +30,17 @@ streamlit run app/streamlit_app.py
 The first time you use a location it downloads ~35 years of hourly data (≈20–60 s). After that it
 is cached in `data/cache/` and loads instantly.
 
+### Deploy (Streamlit Community Cloud, free)
+
+1. Sign in at [share.streamlit.io](https://share.streamlit.io) with GitHub and click **Create app**.
+2. Repository `spencereread/holiday-weather-analysis`, branch `main`,
+   main file `app/streamlit_app.py`.
+3. Under **Advanced settings**, choose Python **3.12**. No secrets are needed.
+
+Dependencies come from `app/requirements.txt`. The preset locations load from `data/seed/`
+(compact ERA5 copies committed to the repo, built with `python scripts/build_seed.py`), so they
+need no API calls. Searched places are downloaded on demand and cached until the app restarts.
+
 ### How the odds are calculated
 
 For each calendar day, every year's weather on that day **± 7 days** is checked against your
