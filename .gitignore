@@ -25,3 +25,7 @@ __pycache__/
 # Data
 data/raw/
 data/processed/
+# App
+.venv/
+data/cache/
+.pytest_cache/
